@@ -1,6 +1,6 @@
 {
   "name": "morgenbrief",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "private": true,
   "description": "Personal Bloomberg-terminal-style morning market briefing. Dense, dark, fast, zero fluff.",
   "type": "module",

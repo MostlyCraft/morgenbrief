@@ -1,0 +1,7 @@
+{
+  "outputDirectory": "public",
+  "regions": ["arn1"],
+  "functions": {
+    "api/**/*.js": { "maxDuration": 300 }
+  }
+}

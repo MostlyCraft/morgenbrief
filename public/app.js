@@ -9,7 +9,7 @@ let GENERATING = false;
 
 /* ---------------- boot ---------------- */
 const BOOT_LINES = [
-  "MORGENBRIEF v1.1",
+  "MORGENBRIEF v1.3",
   "KLOKKESYNK ......... CET OK",
   "KURSFEEDER ......... INIT",
   "ANTHROPIC-LENKE .... INIT",
@@ -205,11 +205,12 @@ async function generateBriefing(focusItems) {
   };
 
   try {
-    await streamPost("/api/briefing/generate", { focus: focusItems }, {
+    await streamPost("/api/briefing/generate", { focus: focusItems, force: true }, {
       onStatus: (s) => append(`<span class="status">▪ ${escapeHtml(s)}</span>\n`),
       onText: (t) => append(escapeHtml(t)),
       onDone: (evt) => {
-        renderBriefing(evt.markdown, `GENERERT ${evt.generatedAtCET} • LAGRET ${evt.savedTo}`);
+        const cacheTag = evt.cached ? " • FRA CACHE (allerede generert i dag)" : "";
+        renderBriefing(evt.markdown, `GENERERT ${evt.generatedAtCET}${cacheTag} • LAGRET ${evt.savedTo}`);
         $("briefFoot").innerHTML =
           `Lagret i <span class="code">${escapeHtml(evt.savedTo)}</span> — åpne briefings-mappen med Claude Desktop/Code for å gå dypere.`;
         led.className = "led on";
@@ -472,12 +473,39 @@ $("settingsModal").addEventListener("click", (e) => {
   if (e.target === $("settingsModal")) $("settingsModal").classList.add("hidden");
 });
 
+/* ---------------- login-overlay (Vercel: statisk side + passordbeskyttet API) ---------------- */
+function showLoginOverlay() {
+  led.className = "led err";
+  const m = document.createElement("div");
+  m.className = "modal";
+  m.innerHTML =
+    `<div class="modalBox" style="max-width:340px"><div class="pHead"><span>TILGANGSKODE</span></div>` +
+    `<form id="loginForm" style="padding:14px;display:flex;flex-direction:column;gap:8px">` +
+    `<input id="loginPw" type="password" placeholder="tilgangskode" autocomplete="current-password" ` +
+    `style="background:var(--bg);color:var(--text);border:1px solid var(--line);padding:8px 10px;font-family:var(--mono);font-size:13px;outline:none" />` +
+    `<button class="btnGen" type="submit">LOGG INN</button>` +
+    `<span id="loginErr" class="dim"></span></form></div>`;
+  document.body.appendChild(m);
+  m.querySelector("#loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const r = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: m.querySelector("#loginPw").value }),
+    });
+    if (r.ok) location.reload();
+    else m.querySelector("#loginErr").textContent = "Feil kode.";
+  });
+  m.querySelector("#loginPw").focus();
+}
+
 /* ---------------- init ---------------- */
 (async function init() {
   loadTape();
   loadChat();
   try {
     const r = await fetch("/api/meta");
+    if (r.status === 401) return showLoginOverlay();
     META = await r.json();
     $("modelTag").textContent = META.model;
     if (!META.hasAnthropicKey) {

@@ -61,13 +61,19 @@ Hver brief lagres som markdown: `briefings/ÅÅÅÅ-MM-DD.md` (med metadata-head
 
 **Mobil på samme nett:** kjør `npm run dev` — terminalen viser en adresse à la `http://192.168.x.x:3000`. Åpne den på mobilen og velg «Legg til på Hjem-skjerm» for app-følelse (PWA).
 
-**Host på internett (del med venner):**
+**Deploy på Vercel (del med venner):**
 
-1. Sett `SITE_PASSWORD=en-valgfri-kode` i `.env` først — uten den kan hvem som helst som finner lenken brenne API-kreditten din. Alle uten koden møter en innloggingsside.
-2. Legg prosjektet på en liten server: Railway, Render, Fly.io eller en VPS. Null avhengigheter — alt som trengs er Node 18+ og `npm start`. Sett miljøvariablene (`ANTHROPIC_API_KEY`, `SITE_PASSWORD`, osv.) i tjenestens dashboard i stedet for `.env`.
-3. Del lenken + koden med vennene dine.
+Backend ligger som serverless functions i `api/`, frontend som statiske filer i `public/`. Lagring skjer i Redis (Upstash) siden serverless functions ikke har varig filsystem. Lokalt (`npm run dev`) brukes filer automatisk — KV trengs kun på Vercel.
 
-Verdt å vite ved deling: appen er én felles instans — alle ser samme brief, samme fokusvalg og samme desk-chat. Ingen brukerkontoer. Dagstakene beskytter kreditten din; regningen går på din nøkkel.
+1. **Redis:** Vercel-dashboard → *Storage* (eller *Marketplace*) → **Upstash for Redis** → koble til prosjektet. Da settes `KV_REST_API_URL` og `KV_REST_API_TOKEN` automatisk. Gratis-tier holder lenge.
+2. **Miljøvariabler:** *Settings → Environment Variables*: legg inn `ANTHROPIC_API_KEY` og `SITE_PASSWORD` (påkrevd før deling — uten kode kan hvem som helst brenne kreditten din). Valgfritt: `FINNHUB_API_KEY`, `ANTHROPIC_MODEL`, `MAX_BRIEFS_PER_DAY`, `MAX_CHATS_PER_DAY`.
+3. **Innstillinger:** *Settings → Build & Development*: Framework Preset = **Other**, ingen build command. Fluid compute skal være på (standard) — det gir functions inntil 300 s kjøretid, som lange genereringer trenger.
+4. `git add -A && git commit -m "vercel" && git push` → Vercel redeployer automatisk.
+5. Del lenken + tilgangskoden.
+
+Kostnadsmodellen på Vercel: **visninger koster aldri API-kall.** Briefen genereres maks én gang per dag (cache-nøkkel `brief:ÅÅÅÅ-MM-DD` i Redis, fornyes automatisk ved midnatt); alle besøkende får samme cachede resultat. Eksplisitt re-generering er mulig, men stoppes av `MAX_BRIEFS_PER_DAY` (standard 2). Kurser caches separat i 5 min (de endres oftere enn briefen) og er gratis uansett. Absolutt tak per dag med standardverdier: 2 brief-genereringer + 60 chat-svar = 62 Claude-kall, uansett hvor mange som besøker siden.
+
+Verdt å vite ved deling: appen er én felles instans — alle ser samme brief, samme fokusvalg og samme desk-chat. Ingen brukerkontoer. På Vercel er den statiske forsiden teknisk sett offentlig, men alt av data og handlinger ligger bak tilgangskoden (login-overlay). `briefings/`-mappen (Claude Desktop-interop) gjelder kun lokal kjøring; på Vercel bor briefen i Redis.
 
 ## Feilsøking
 
