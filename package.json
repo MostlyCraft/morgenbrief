@@ -1,0 +1,16 @@
+{
+  "name": "morgenbrief",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal Bloomberg-terminal-style morning market briefing. Dense, dark, fast, zero fluff.",
+  "type": "module",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js",
+    "setup": "node -e \"const fs=require('fs');if(!fs.existsSync('.env')){fs.copyFileSync('.env.example','.env');console.log('.env created - add your API keys')}else{console.log('.env already exists')}\""
+  },
+  "dependencies": {}
+}
