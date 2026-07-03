@@ -54,8 +54,13 @@ function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/* ---------------- kilder + tidstagger ---------------- */
+/* ---------------- kilder + tidstagger + verifisering ---------------- */
 let USED_SRC = new Set(); // kilder brukt i inneværende seksjon (styres av renderSection)
+let CLAIMS = [];          // dagens claims (konfidens + bull/bear) fra backend
+let SRCS = [];            // dagens berikede kilder (tier/score/begrunnelser)
+
+const scoreCls = (s) => (s >= 61 ? "s-bull" : s <= 39 ? "s-bear" : "s-neut");
+const scoreWord = (s) => (s >= 61 ? "BULLISH" : s <= 39 ? "BEARISH" : "NØYTRAL");
 
 function domainOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "kilde"; }
@@ -85,6 +90,16 @@ function inlineMd(s, sources = []) {
     if (!src || !src.url) return "";
     USED_SRC.add(Number(n));
     return `<a class="srcRef" href="${escapeHtml(src.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(src.title || src.url)}">[${escapeHtml(domainOf(src.url))}]</a>`;
+  });
+  // verifiseringsmerker -> konfidens-badge + score-chip (klikk = detaljer)
+  h = h.replace(/\[\[V:(\d+)\]\]/g, (m, id) => {
+    const c = CLAIMS[Number(id)];
+    if (!c) return "";
+    const sym = c.level === "ok" ? "✓" : c.level === "single" ? "◐" : "✗";
+    const lbl = c.level === "ok" ? "BEKREFTET" : c.level === "single" ? "ENKELTKILDE" : "UBEKREFTET";
+    const spr = c.conflict ? '<span class="tag tag-uke" title="kildene motsier hverandre - begge versjoner vist">SPRIKER</span>' : "";
+    return `<button type="button" class="vBadge v-${c.level}" data-claim="${id}" title="${lbl} - klikk for kilder og faktorer">${sym}</button>` +
+           `<button type="button" class="scoreChip ${scoreCls(c.bb.score)}" data-claim="${id}" title="bull/bear ${c.bb.score}/100 - klikk for faktorer">${c.bb.score}</button>${spr}`;
   });
   h = h.replace(/(^|[\s(>])([+]\d+(?:[.,]\d+)?\s?%)/g, '$1<span class="up">$2</span>');
   h = h.replace(/(^|[\s(>])([-−]\d+(?:[.,]\d+)?\s?%)/g, '$1<span class="down">$2</span>');
@@ -154,7 +169,10 @@ function parseSections(markdown) {
   return sections;
 }
 
-function renderBriefing(markdown, metaLine, sources = [], stamp = "") {
+function renderBriefing(markdown, metaLine, sources = [], stamp = "", extra = {}) {
+  CLAIMS = extra.claims || [];
+  SRCS = sources;
+  document.querySelectorAll(".claimDetail").forEach((d) => d.remove());
   const secs = parseSections(markdown);
   const get = (...names) => {
     for (const n of names) {
@@ -178,8 +196,21 @@ function renderBriefing(markdown, metaLine, sources = [], stamp = "") {
   focus.forEach((s, i) => {
     const panel = document.createElement("section");
     panel.className = "panel";
+    const sec = extra.sections?.[s.heading.toUpperCase()];
+    const tick = s.heading.replace(/^FOKUS:\s*/i, "").trim();
+    const d = extra.deltas?.focus?.[tick];
+    let head = `<span>${escapeHtml(s.heading)}${i === 0 ? " // PRIMÆR" : ""}</span>`;
+    let driversHtml = "";
+    if (sec) {
+      const dTxt = typeof d === "number" && d !== 0 ? ` <span class="${d > 0 ? "up" : "down"}">${d > 0 ? "▲+" : "▼"}${d}</span>` : "";
+      head += `<span class="bbHead"><span class="scoreChip big ${scoreCls(sec.score)}" title="samlet bull/bear for denne aksjen (${sec.n} scorede punkter)">BB ${sec.score}</span>${dTxt}${sec.lowConf ? '<span class="tag tag-eldre" title="tynt datagrunnlag - få eller ubekreftede punkter">LAV KONFIDENS</span>' : ""}</span>`;
+      if (sec.drivers?.length) {
+        driversHtml = `<div class="drivers">DRIVERE: ${sec.drivers.map((dr) =>
+          `<span class="${scoreCls(dr.score)}">[${dr.score}]</span> ${escapeHtml(dr.text)}`).join(" · ")}</div>`;
+      }
+    }
     panel.innerHTML =
-      `<div class="pHead"><span>${escapeHtml(s.heading)}${i === 0 ? " // PRIMÆR" : ""}</span></div>` +
+      `<div class="pHead">${head}</div>` + driversHtml +
       `<div class="pBody">${renderSection(s.body, sources, { firstLineQuote: true })}</div>`;
     if (i === 0) {
       wrap.appendChild(panel);
@@ -189,6 +220,39 @@ function renderBriefing(markdown, metaLine, sources = [], stamp = "") {
       grid.appendChild(panel);
     }
   });
+
+  // Overall marked-sentiment øverst (vektet av SITREP + regionene)
+  const strip = $("bbStrip");
+  if (extra.overall && typeof extra.overall.score === "number") {
+    const o = extra.overall;
+    const dTot = typeof extra.deltas?.overall === "number" && extra.deltas.overall !== 0
+      ? ` <span class="${extra.deltas.overall > 0 ? "up" : "down"}">${extra.deltas.overall > 0 ? "▲+" : "▼"}${extra.deltas.overall}</span> vs i går`
+      : "";
+    strip.innerHTML =
+      `<span class="dim">MARKED-SENTIMENT</span> <span class="scoreChip big ${scoreCls(o.score)}">${o.score} ${scoreWord(o.score)}</span>` +
+      (o.lowConf ? ' <span class="tag tag-eldre" title="tynt datagrunnlag">LAV KONFIDENS</span>' : "") + dTot +
+      (o.drivers?.length ? ` <span class="dim">· drivere:</span> ${o.drivers.map((dr) =>
+        `<span class="${scoreCls(dr.score)}">[${dr.score}]</span> ${escapeHtml(dr.text.slice(0, 55))}`).join(" · ")}` : "");
+    strip.classList.remove("hidden");
+  } else {
+    strip.classList.add("hidden");
+  }
+
+  // ALLE KILDER-panelet: hver kilde med tier, score og begrunnelse
+  const asBody = $("allSources");
+  if (sources.length) {
+    asBody.innerHTML = sources.map((s) => {
+      const r = s.rating || {};
+      const inv = s.valid === false ? ' <span class="tag tag-rykte">UGYLDIG - STRIPPET</span>' : "";
+      return `<div class="srcRow"><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(domainOf(s.url))}</a>` +
+        ` <span class="scoreChip ${scoreCls(r.score ?? 40)}">${r.score ?? "?"}</span>` +
+        ` <span class="dim">${escapeHtml(r.label || "")}</span>${inv}` +
+        `<div class="srcReasons dim">${escapeHtml((r.reasons || []).join(" · "))}${s.title ? " — «" + escapeHtml(s.title.slice(0, 80)) + "»" : ""}</div></div>`;
+    }).join("");
+    $("allSourcesPanel").classList.remove("hidden");
+  } else {
+    $("allSourcesPanel").classList.add("hidden");
+  }
 
   // «hentet HH:MM CET» øverst i hver boks
   if (stamp) {
@@ -204,6 +268,38 @@ function renderBriefing(markdown, metaLine, sources = [], stamp = "") {
   $("stream").classList.add("hidden");
   $("briefing").classList.remove("hidden");
 }
+
+/* ---------------- claim-detaljer (klikk på badge/score) ---------------- */
+$("main").addEventListener("click", (e) => {
+  const btn = e.target.closest(".vBadge, .scoreChip[data-claim]");
+  if (!btn || !btn.dataset.claim) return;
+  const c = CLAIMS[Number(btn.dataset.claim)];
+  if (!c) return;
+  const host = btn.closest("li, p, .sowhat") || btn.parentElement;
+  const next = host.nextElementSibling;
+  if (next && next.classList?.contains("claimDetail")) {
+    const same = next.dataset.claim === btn.dataset.claim;
+    next.remove();
+    if (same) return;
+  }
+  document.querySelectorAll(".claimDetail").forEach((d) => d.remove());
+  const lbl = c.level === "ok" ? "✓ BEKREFTET" : c.level === "single" ? "◐ ENKELTKILDE" : "✗ RYKTE/UBEKREFTET";
+  const srcRows = (c.srcIdx || []).map((n) => {
+    const s = SRCS[n];
+    if (!s) return "";
+    const r = s.rating || {};
+    return `<div>· <a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(domainOf(s.url))}</a>` +
+      ` <span class="scoreChip ${scoreCls(r.score ?? 40)}">${r.score ?? "?"}</span> <span class="dim">${escapeHtml((r.reasons || []).join(" · "))}</span></div>`;
+  }).join("");
+  const el = document.createElement(host.tagName === "LI" ? "li" : "div");
+  el.className = "claimDetail";
+  el.dataset.claim = btn.dataset.claim;
+  el.innerHTML =
+    `<div><b>${lbl}</b> <span class="dim">${escapeHtml((c.why || []).join(" · "))}</span></div>` +
+    (srcRows ? `<div class="dim" style="margin-top:3px">KILDER:</div>${srcRows}` : `<div class="dim">Ingen gyldige kilder.</div>`) +
+    `<div class="dim" style="margin-top:3px">BULL/BEAR ${c.bb.score}/100:</div><div>${escapeHtml((c.bb.factors || []).join(" · "))}</div>`;
+  host.after(el);
+});
 
 /* ---------------- SSE-over-fetch ---------------- */
 async function streamPost(url, body, handlers) {
@@ -274,7 +370,8 @@ async function generateBriefing(focusItems) {
           evt.markdown,
           `GENERERT ${evt.generatedAtCET}${cacheTag}${searchTag} • LAGRET ${evt.savedTo}`,
           evt.sources || [],
-          evt.generatedAtCET || ""
+          evt.generatedAtCET || "",
+          { claims: evt.claims, sections: evt.sections, overall: evt.overall, deltas: evt.deltas }
         );
         $("briefFoot").innerHTML =
           `Lagret i <span class="code">${escapeHtml(evt.savedTo)}</span> — åpne briefings-mappen med Claude Desktop/Code for å gå dypere.`;
@@ -470,6 +567,12 @@ $("chatForm").addEventListener("submit", async (e) => {
   }
 });
 
+$("btnAllSources").addEventListener("click", () => {
+  const b = $("allSources");
+  b.classList.toggle("hidden");
+  $("btnAllSources").textContent = b.classList.contains("hidden") ? "VIS" : "SKJUL";
+});
+
 $("btnChat").addEventListener("click", () => chatPanel.classList.toggle("hidden"));
 $("btnChatClose").addEventListener("click", () => chatPanel.classList.add("hidden"));
 $("btnChatClear").addEventListener("click", async () => {
@@ -592,7 +695,8 @@ function showLoginOverlay() {
           b.markdown,
           `GENERERT ${b.meta.generatedAtCET || b.meta.generatedAt || ""} • ${b.date}${searchTag} • FOKUS: ${b.meta.focus || ""}`,
           b.sources || [],
-          b.meta.generatedAtCET || ""
+          b.meta.generatedAtCET || "",
+          { claims: b.claims, sections: b.sections, overall: b.overall, deltas: b.deltas }
         );
         $("briefFoot").innerHTML =
           `Lagret i <span class="code">briefings/${b.date}.md</span> — åpne den mappen med Claude Desktop/Code for å gå dypere.`;

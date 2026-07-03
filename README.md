@@ -45,6 +45,12 @@ Briefen har faste seksjoner:
 
 Alt genereres av Claude (`claude-haiku-4-5` som standard — billig og rask; vil du ha mer analytisk dybde, sett `ANTHROPIC_MODEL=claude-sonnet-4-6` i `.env`, ca. 3–5x dyrere) med **obligatorisk websøk**: prompten krever søk per seksjon, hver påstand får klikkbar kilde (inline + KILDER-liste per boks), alt nyhetsinnhold tidsmerkes ([I DAG] / [DENNE UKEN] / [DENNE MÅNEDEN] / [ELDRE]), og en brief der modellen gjorde 0 søk **avvises automatisk** i stedet for å serveres. Fokus-bokser deles i lag: I DAG / SISTE UKE / SISTE MÅNED / RYKTER (ubekreftet, tydelig merket). Pump-sider (StocksToTrade, Timothy Sykes o.l.) er blokkert som kilder — juster med `BLOCKED_DOMAINS=domene1,domene2` i env. Kurser hentes fra Finnhub/Yahoo og mates inn som fasit, så modellen aldri gjetter tall.
 
+## Kildekritikk + bull/bear (v2)
+
+Hvert nyhetspunkt får et konfidensmerke beregnet i **kode, ikke av modellen**: ✓ BEKREFTET (2+ uavhengige opphav, eller ett primærdokument — børsmelding/SEC/IR), ◐ ENKELTKILDE (én kilde — syndikerte artikler med samme opphav telles som én), ✗ RYKTE/UBEKREFTET (sosiale medier, eller påstander uten gyldig sitering — nedgraderes automatisk). Kun URL-er som faktisk kom fra websøket kan siteres; alt annet strippes (`lib/verify.js`). Kilderating med tier + begrunnelse ligger i `lib/sources.js` og vises i «ALLE KILDER»-panelet og ved klikk på hvert merke.
+
+Bull/bear-score (0–100) regnes deterministisk av faktorer modellen ekstraherer (harde tall-retning, vesentlighet, innsidehandel) — rykter dempes mot 50 og kan aldri gi ekstremscore, kildekonflikter merkes SPRIKER. Score per punkt, per aksje (med drivere og ▲/▼ mot i går) og samlet marked-sentiment øverst. Tynt grunnlag merkes LAV KONFIDENS. Historikk lagres 90 dager.
+
 ## Favoritter
 
 Tannhjulet → administrer favoritter (navn + valgfri ticker + **vinkel**). Favoritter dukker opp som hurtigvalg i fokus-velgeren. Vinkelteksten mates inn i prompten, så skriv den slik du tenker om posisjonen. Leveres med ONDS, KOG.OL, «Teknologi/halvledere» og «Forsvarssektoren» som eksempler.

@@ -185,6 +185,51 @@ header {
 .tag-rykte { color: var(--red); border-color: #5c2222; background: #1d0a0a; }
 .fetchStamp { font-size: 9.5px; color: var(--dim); letter-spacing: .5px; text-transform: none; font-weight: normal; }
 .msg .srcList { font-size: 10px; }
+
+/* ---- verifisering + bull/bear (v2) ---- */
+.vBadge {
+  font-family: var(--mono); font-size: 10px; line-height: 1;
+  padding: 1px 4px; margin-right: 3px; cursor: pointer;
+  background: transparent; border: 1px solid; vertical-align: 1px;
+}
+.vBadge.v-ok { color: var(--green); border-color: #1c5c3a; }
+.vBadge.v-single { color: var(--amber); border-color: var(--amber-dim); }
+.vBadge.v-rumor { color: var(--red); border-color: #5c2222; }
+.scoreChip {
+  font-family: var(--mono); font-size: 9.5px; line-height: 1;
+  padding: 1px 5px; margin-right: 5px; cursor: pointer;
+  background: transparent; border: 1px solid; vertical-align: 1px; white-space: nowrap;
+}
+.scoreChip.big { font-size: 11px; padding: 2px 7px; cursor: default; }
+.scoreChip.s-bull { color: var(--green); border-color: #1c5c3a; background: #0a1f14; }
+.scoreChip.s-neut { color: var(--amber); border-color: var(--amber-dim); background: #1a1206; }
+.scoreChip.s-bear { color: var(--red); border-color: #5c2222; background: #1d0a0a; }
+.claimDetail {
+  margin: 4px 0 6px 14px !important; padding: 7px 9px !important;
+  background: var(--panel2); border: 1px solid var(--line);
+  border-left: 2px solid var(--amber-dim);
+  font-size: 11px; list-style: none;
+}
+.claimDetail::before { content: none !important; }
+.claimDetail a { color: var(--amber-dim); }
+.claimDetail a:hover { color: var(--amber); }
+.bbStrip {
+  padding: 7px 10px; margin-bottom: 10px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-left: 3px solid var(--amber);
+  font-size: 11.5px; letter-spacing: .3px;
+}
+.bbHead { display: flex; align-items: center; gap: 6px; text-transform: none; }
+.drivers {
+  padding: 5px 12px; font-size: 10.5px; color: var(--dim);
+  border-bottom: 1px solid var(--line); background: #090d12;
+  letter-spacing: .3px;
+}
+.srcRow { padding: 5px 0; border-bottom: 1px dashed var(--line); font-size: 11.5px; }
+.srcRow:last-child { border-bottom: none; }
+.srcRow a { color: var(--text); text-decoration: none; }
+.srcRow a:hover { color: var(--amber); }
+.srcReasons { font-size: 10px; margin-top: 2px; }
 .cols2 { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 10px; }
 .focusGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; }
 .focusGrid .panel { margin-bottom: 0; }
