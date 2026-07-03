@@ -1,0 +1,17 @@
+# Sikkerhetsnett: skulle noen av de konsoliderte function-filene gjenoppstå
+# (OneDrive-sync o.l.), holdes de utenfor deployen så function-tellingen
+# forblir under Hobby-grensen. Kanonisk API = api/gw.js + de tre streaming-filene.
+api/meta.js
+api/settings.js
+api/quotes.js
+api/data.js
+api/health.js
+api/history.js
+api/profiles.js
+api/login.js
+api/focus/
+api/briefing/today.js
+api/chat/today.js
+api/server.js
+briefings/
+data/

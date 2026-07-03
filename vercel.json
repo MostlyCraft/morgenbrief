@@ -4,6 +4,19 @@
   "functions": {
     "api/**/*.js": { "maxDuration": 300 }
   },
+  "rewrites": [
+    { "source": "/api/meta", "destination": "/api/gw?fn=meta" },
+    { "source": "/api/settings", "destination": "/api/gw?fn=settings" },
+    { "source": "/api/quotes", "destination": "/api/gw?fn=quotes" },
+    { "source": "/api/data", "destination": "/api/gw?fn=data" },
+    { "source": "/api/focus/today", "destination": "/api/gw?fn=focus" },
+    { "source": "/api/briefing/today", "destination": "/api/gw?fn=brieftoday" },
+    { "source": "/api/chat/today", "destination": "/api/gw?fn=chatlog" },
+    { "source": "/api/health", "destination": "/api/gw?fn=health" },
+    { "source": "/api/history", "destination": "/api/gw?fn=history" },
+    { "source": "/api/profiles", "destination": "/api/gw?fn=profiles" },
+    { "source": "/api/login", "destination": "/api/gw?fn=login" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
