@@ -83,9 +83,12 @@ Ingen build-steg, ingen rammeverk: app.js ≈ 35 kB, style.css ≈ 15 kB, ukompr
 ## Datakilder & vilkår
 
 - Anthropic web_search: betalt verktøy, brukes kun ved generering; siteringer vises med lenke (kravet i vilkårene).
-- Yahoo Finance chart-endepunkt: uoffisielt, gratis, kan rate-limites — best effort med host-fallback, aldri sanntidsgaranti. Vis alltid som forsinket.
-- Finnhub free tier: kun US-tickere; nøkkel valgfri.
-- Fase 1-kandidater (SEC EDGAR, FRED, NewsWeb/Euronext): gratis/offisielle; bruksvilkår dokumenteres her når de integreres.
+- Yahoo Finance chart-endepunkt: uoffisielt, gratis, kan rate-limites — best effort med host-fallback, aldri sanntidsgaranti. Kurs-chips viser kilde + alder («oppdatert X min siden»).
+- Finnhub free tier: kun US-tickere; nøkkel valgfri. Vilkår: personlig/ikke-kommersiell bruk på free tier; resultatkalender brukes med nøkkel.
+- **SEC EDGAR** (fase 1): offisiell og gratis. Fair access-policy krever identifiserende User-Agent med kontaktinfo (`EDGAR_CONTACT` i env) og ≤10 req/s — vi gjør ≤6 småkall per ticker hver 6. time (cachet). Form 4 klassifiseres kjøp/salg fra transaksjonskoder i kode (`lib/marketdata.js`).
+- **FRED / St. Louis Fed** (fase 1): offisiell, gratis nøkkel (`FRED_API_KEY`). Vilkår krever kildeangivelse — UI merker tallene «FRED». Serier: DFF (styringsrente), CPIAUCSL (KPI å/å regnes i kode), UNRATE.
+- **NewsWeb/Oslo Børs** (fase 1): uoffisiell JSON-lesing av offentlige børsmeldinger; endepunktet kan endres uten varsel (`NEWSWEB_BASE` overstyrbar). UI viser ærlig «kilde utilgjengelig» ved feil. Meldepliktige handler detekteres på tittel/kategori i kode.
+- Alle fase 1-kilder er ratet i `lib/sources.js` (EDGAR/FRED/NewsWeb = Tier 1-domener).
 
 ## Kjente begrensninger / roadmap
 

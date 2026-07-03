@@ -60,7 +60,42 @@ let CLAIMS = [];          // dagens claims (konfidens + bull/bear) fra backend
 let SRCS = [];            // dagens berikede kilder (tier/score/begrunnelser)
 
 const scoreCls = (s) => (s >= 61 ? "s-bull" : s <= 39 ? "s-bear" : "s-neut");
-const scoreWord = (s) => (s >= 61 ? "BULLISH" : s <= 39 ? "BEARISH" : "NØYTRAL");
+const scoreWord = (s) => (s >= 81 ? "STRONG BULL" : s >= 61 ? "BULL" : s > 39 ? "NØYTRAL" : s > 19 ? "BEAR" : "STRONG BEAR");
+
+let SECTIONS = {}; // dagens seksjonsscorer (for gauges/aksjekort)
+let LAST_SECS = []; // rå seksjoner fra siste render (for kilder per aksje)
+let DATA = null;    // siste /api/data-pakke
+let HIST = [];      // bull/bear-historikk (30 d)
+
+/* halvsirkel-måler: Strong Bear -> Bear -> Nøytral -> Bull -> Strong Bull */
+function gaugeSVG(score, w = 120, claimId = "") {
+  const cx = 50, cy = 46, r = 38;
+  const P = (a) => [cx + r * Math.cos(Math.PI * (1 - a)), cy - r * Math.sin(Math.PI * (1 - a))];
+  const arc = (a0, a1, color, op) => {
+    const [x0, y0] = P(a0), [x1, y1] = P(a1);
+    return `<path d="M${x0.toFixed(1)} ${y0.toFixed(1)} A${r} ${r} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)}" stroke="${color}" stroke-opacity="${op}" stroke-width="7" fill="none" stroke-linecap="butt"/>`;
+  };
+  const a = Math.max(0, Math.min(100, score)) / 100;
+  const [nx, ny] = [cx + (r - 11) * Math.cos(Math.PI * (1 - a)), cy - (r - 11) * Math.sin(Math.PI * (1 - a))];
+  return `<svg class="gauge" width="${w}" viewBox="0 0 100 60" role="img" aria-label="bull/bear ${score} av 100"${claimId ? ` data-sec="${escapeHtml(claimId)}"` : ""}>` +
+    arc(0, 0.2, "var(--red)", 1) + arc(0.2, 0.4, "var(--red)", 0.4) +
+    arc(0.4, 0.6, "var(--amber)", 0.75) + arc(0.6, 0.8, "var(--green)", 0.4) + arc(0.8, 1, "var(--green)", 1) +
+    `<line x1="${cx}" y1="${cy}" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}" stroke="var(--text)" stroke-width="2.5"/>` +
+    `<circle cx="${cx}" cy="${cy}" r="3.2" fill="var(--text)"/>` +
+    `<text x="${cx}" y="58" text-anchor="middle" font-size="13" fill="var(--text)" font-family="inherit">${score}</text></svg>`;
+}
+
+/* mini-sparkline av score-historikk */
+function sparkSVG(values, w = 72, h = 20) {
+  const v = (values || []).filter((n) => typeof n === "number");
+  if (v.length < 2) return "";
+  const min = Math.min(...v, 40), max = Math.max(...v, 60);
+  const pts = v.map((n, i) => `${(i / (v.length - 1)) * (w - 2) + 1},${h - 2 - ((n - min) / (max - min || 1)) * (h - 4)}`).join(" ");
+  const last = v[v.length - 1];
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="30 dagers scoretrend">` +
+    `<line x1="1" y1="${h - 2 - ((50 - min) / (max - min || 1)) * (h - 4)}" x2="${w - 1}" y2="${h - 2 - ((50 - min) / (max - min || 1)) * (h - 4)}" stroke="var(--line)" stroke-width="1"/>` +
+    `<polyline points="${pts}" fill="none" stroke="${last >= 61 ? "var(--green)" : last <= 39 ? "var(--red)" : "var(--amber)"}" stroke-width="1.5"/></svg>`;
+}
 
 function domainOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "kilde"; }
@@ -192,8 +227,10 @@ function parseSections(markdown) {
 function renderBriefing(markdown, metaLine, sources = [], stamp = "", extra = {}) {
   CLAIMS = extra.claims || [];
   SRCS = sources;
+  SECTIONS = extra.sections || {};
   document.querySelectorAll(".claimDetail").forEach((d) => d.remove());
   const secs = parseSections(markdown);
+  LAST_SECS = secs;
   // Tolerant seksjonsmatch: "DAGENS KALENDER", "OPPSUMMERING" osv. treffer også.
   // FOKUS-seksjoner holdes utenfor så f.eks. "USA" aldri matcher en fokus-boks.
   const fixed = secs.filter((s) => !/^FOKUS/i.test(s.heading));
@@ -231,14 +268,18 @@ function renderBriefing(markdown, metaLine, sources = [], stamp = "", extra = {}
     let driversHtml = "";
     if (sec) {
       const dTxt = typeof d === "number" && d !== 0 ? ` <span class="${d > 0 ? "up" : "down"}">${d > 0 ? "▲+" : "▼"}${d}</span>` : "";
-      head += `<span class="bbHead"><span class="scoreChip big ${scoreCls(sec.score)}" title="samlet bull/bear for denne aksjen (${sec.n} scorede punkter)">BB ${sec.score}</span>${dTxt}${sec.lowConf ? '<span class="tag tag-eldre" title="tynt datagrunnlag - få eller ubekreftede punkter">LAV KONFIDENS</span>' : ""}</span>`;
-      if (sec.drivers?.length) {
-        driversHtml = `<div class="drivers">DRIVERE: ${sec.drivers.map((dr) =>
-          `<span class="${scoreCls(dr.score)}">[${dr.score}]</span> ${escapeHtml(dr.text)}`).join(" · ")}</div>`;
-      }
+      head += `<span class="bbHead"><span class="gaugeMini" data-sec="${escapeHtml(s.heading.toUpperCase())}" title="klikk for faktorene bak scoren">${gaugeSVG(sec.score, 58)}</span>` +
+        `<span class="gaugeLbl ${scoreCls(sec.score)}">${scoreWord(sec.score)}</span>${dTxt}` +
+        `<span class="sparkSlot" data-tick="${escapeHtml(tick)}"></span>` +
+        `${sec.lowConf ? '<span class="tag tag-eldre" title="tynt datagrunnlag - få eller ubekreftede punkter">LAV KONFIDENS</span>' : ""}</span>`;
+      const allDrivers = [
+        ...(sec.drivers || []).map((dr) => `<span class="${scoreCls(dr.score)}">[${dr.score}]</span> ${escapeHtml(dr.text)}`),
+        ...(sec.structFactors || []).map((f) => `<span class="dim">[data]</span> ${escapeHtml(f)}`),
+      ];
+      if (allDrivers.length) driversHtml = `<div class="drivers">DRIVERE: ${allDrivers.join(" · ")}</div>`;
     }
     panel.innerHTML =
-      `<div class="pHead">${head}</div>` + driversHtml +
+      `<div class="pHead"><span class="fokusTitle" data-tick="${escapeHtml(tick)}" title="klikk for aksjekort">${escapeHtml(s.heading)}${i === 0 ? " // PRIMÆR" : ""}</span>${head.replace(/^<span>.*?<\/span>/, "")}</div>` + driversHtml +
       `<div class="pBody">${renderSection(s.body, sources, { firstLineQuote: true })}</div>`;
     if (i === 0) {
       wrap.appendChild(panel);
@@ -249,22 +290,29 @@ function renderBriefing(markdown, metaLine, sources = [], stamp = "", extra = {}
     }
   });
 
-  // Overall marked-sentiment øverst (vektet av SITREP + regionene)
+  // Overall marked-sentiment øverst: stor gauge + drivere (vektet av SITREP + regionene)
   const strip = $("bbStrip");
   if (extra.overall && typeof extra.overall.score === "number") {
     const o = extra.overall;
     const dTot = typeof extra.deltas?.overall === "number" && extra.deltas.overall !== 0
-      ? ` <span class="${extra.deltas.overall > 0 ? "up" : "down"}">${extra.deltas.overall > 0 ? "▲+" : "▼"}${extra.deltas.overall}</span> vs i går`
+      ? ` <span class="${extra.deltas.overall > 0 ? "up" : "down"}">${extra.deltas.overall > 0 ? "▲+" : "▼"}${extra.deltas.overall}</span> <span class="dim">vs i går</span>`
       : "";
     strip.innerHTML =
-      `<span class="dim">MARKED-SENTIMENT</span> <span class="scoreChip big ${scoreCls(o.score)}">${o.score} ${scoreWord(o.score)}</span>` +
+      `<span class="gaugeWrap big" data-sec="__OVERALL__" title="klikk for faktorene bak">${gaugeSVG(o.score, 120)}</span>` +
+      `<span class="stripInfo"><span class="dim">MARKED-SENTIMENT</span> <span class="gaugeLbl ${scoreCls(o.score)}">${scoreWord(o.score)}</span>` +
       (o.lowConf ? ' <span class="tag tag-eldre" title="tynt datagrunnlag">LAV KONFIDENS</span>' : "") + dTot +
-      (o.drivers?.length ? ` <span class="dim">· drivere:</span> ${o.drivers.map((dr) =>
-        `<span class="${scoreCls(dr.score)}">[${dr.score}]</span> ${escapeHtml(dr.text.slice(0, 55))}`).join(" · ")}` : "");
+      `<span class="sparkSlot" data-tick="__OVERALL__"></span>` +
+      (o.drivers?.length ? `<div class="drivers strip">DRIVERE: ${o.drivers.map((dr) =>
+        `<span class="${scoreCls(dr.score)}">[${dr.score}]</span> ${escapeHtml(dr.text.slice(0, 55))}`).join(" · ")}</div>` : "") +
+      `</span>`;
     strip.classList.remove("hidden");
   } else {
     strip.classList.add("hidden");
   }
+
+  renderDelta(extra.delta || null);
+  injectSparks();
+  clampPass();
 
   // ALLE KILDER-panelet: hver kilde med tier, score og begrunnelse
   const asBody = $("allSources");
@@ -297,8 +345,244 @@ function renderBriefing(markdown, metaLine, sources = [], stamp = "", extra = {}
   $("briefing").classList.remove("hidden");
 }
 
+/* ---------------- delta-brief («nytt siden i morges») ---------------- */
+function renderDelta(d) {
+  const p = $("deltaPanel");
+  if (!d || !d.markdown) { p.classList.add("hidden"); return; }
+  $("deltaBody").innerHTML = renderSection(d.markdown, d.sources || []);
+  $("deltaStamp").textContent = `hentet ${d.generatedAtCET || ""} · ${d.searches ?? "?"} søk`;
+  p.classList.remove("hidden");
+}
+
+$("btnDelta").addEventListener("click", async () => {
+  const p = $("deltaPanel"), b = $("deltaBody");
+  p.classList.remove("hidden");
+  b.innerHTML = '<p class="dim">▪ starter intradag-oppdatering…</p>';
+  try {
+    await streamPost("/api/briefing/delta", {}, {
+      onStatus: (s) => { b.innerHTML = `<p class="dim">▪ ${escapeHtml(s)}</p>`; },
+      onText: () => {},
+      onDone: (evt) => renderDelta(evt.delta),
+      onError: (m) => { b.innerHTML = `<p class="down">${escapeHtml(m)}</p>`; },
+    });
+  } catch (e) {
+    b.innerHTML = `<p class="down">${escapeHtml(String(e.message || e))}</p>`;
+  }
+});
+
+/* ---------------- historikk + sparklines ---------------- */
+async function loadHistory() {
+  try {
+    const r = await fetch("/api/history");
+    if (r.ok) { HIST = (await r.json()).series || []; injectSparks(); }
+  } catch { /* pynt */ }
+}
+
+function injectSparks() {
+  document.querySelectorAll(".sparkSlot").forEach((slot) => {
+    const t = slot.dataset.tick;
+    const vals = HIST.map((h) => (t === "__OVERALL__" ? h.overall : h.focus?.[t])).filter((v) => typeof v === "number");
+    slot.innerHTML = vals.length >= 2 ? sparkSVG(vals) : "";
+  });
+}
+
+/* ---------------- seksjonsfaktorer (klikk på gauge) ---------------- */
+function showSecFactors(secKey, anchorEl) {
+  const host = anchorEl.closest(".pHead") || anchorEl.closest(".bbStrip");
+  if (!host) return;
+  const next = host.nextElementSibling;
+  if (next && next.classList?.contains("claimDetail")) { next.remove(); return; }
+  document.querySelectorAll(".claimDetail").forEach((x) => x.remove());
+  let html = "";
+  if (secKey === "__OVERALL__") {
+    const rows = Object.entries(SECTIONS)
+      .filter(([k]) => /^(SITREP|USA|EUROPA|NORGE|ASIA)/.test(k))
+      .map(([k, s]) => `<div>· ${escapeHtml(k)}: <span class="${scoreCls(s.score)}">${s.score}</span> (${s.n} punkter)</div>`).join("");
+    html = `<div><b>MARKED-SENTIMENT</b> <span class="dim">= dominans-vektet netto av seksjonene (SITREP teller 1,5x)</span></div>${rows}`;
+  } else {
+    const s = SECTIONS[secKey];
+    if (!s) return;
+    html = `<div><b>${escapeHtml(secKey)}</b> <span class="dim">score ${s.score} = nyhetssignaler (dominans-vektet) + datafaktorer${s.lowConf ? " · LAV KONFIDENS" : ""}</span></div>` +
+      (s.drivers || []).map((dr) => `<div>· <span class="${scoreCls(dr.score)}">[${dr.score}]</span> ${escapeHtml(dr.text)}</div>`).join("") +
+      (s.structFactors || []).map((f) => `<div>· <span class="dim">[data]</span> ${escapeHtml(f)}</div>`).join("");
+  }
+  const el = document.createElement("div");
+  el.className = "claimDetail";
+  el.innerHTML = html;
+  host.after(el);
+}
+
+/* ---------------- kommandopalett (Ctrl+K) ---------------- */
+const PAL_CMDS = [
+  ["gen", "Generer morgenbrief (velg fokus)", () => openFocusPicker()],
+  ["delta", "Intradag: nytt siden i morges", () => $("btnDelta").click()],
+  ["kilder", "Vis/skjul ALLE KILDER-panelet", () => { $("btnAllSources").click(); $("allSourcesPanel").scrollIntoView({ behavior: "smooth" }); }],
+  ["chat", "Vis/skjul desk-chat", () => $("btnChat").click()],
+  ["lesbar", "Bytt Kompakt/Lesbar", () => toggleDensity()],
+  ["profil", "Bytt profil (egen watchlist)", () => pickProfile(true)],
+  ["innstillinger", "Rediger watchlist/favoritter", () => $("btnSettings").click()],
+];
+
+function paletteEntries(q) {
+  q = q.trim().toLowerCase();
+  const out = [];
+  for (const [cmd, desc, fn] of PAL_CMDS) {
+    if (!q || cmd.startsWith(q)) out.push({ label: cmd.toUpperCase(), desc, fn });
+  }
+  for (const k of Object.keys(SECTIONS)) {
+    const m = k.match(/^FOKUS:\s*(.+)/);
+    if (!m) continue;
+    const t = m[1].trim();
+    if (!q || t.toLowerCase().includes(q)) out.push({ label: t, desc: "Åpne aksjekort", fn: () => openStock(t) });
+  }
+  return out.slice(0, 7);
+}
+
+function togglePalette(show) {
+  const pal = $("palette");
+  const on = show ?? pal.classList.contains("hidden");
+  pal.classList.toggle("hidden", !on);
+  if (on) { $("palInput").value = ""; renderPalList(); $("palInput").focus(); }
+}
+
+function renderPalList() {
+  const entries = paletteEntries($("palInput").value);
+  $("palList").innerHTML = entries.map((e, i) =>
+    `<div class="palRow${i === 0 ? " sel" : ""}" data-i="${i}"><b>${escapeHtml(e.label)}</b> <span class="dim">${escapeHtml(e.desc)}</span></div>`).join("") ||
+    '<div class="palRow dim">ingen treff</div>';
+  $("palList")._entries = entries;
+}
+
+$("palInput").addEventListener("input", renderPalList);
+$("palInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    const entries = $("palList")._entries || [];
+    if (entries[0]) { togglePalette(false); entries[0].fn(); }
+  }
+});
+$("palList").addEventListener("click", (e) => {
+  const row = e.target.closest(".palRow");
+  const entries = $("palList")._entries || [];
+  if (row && entries[Number(row.dataset.i)]) { togglePalette(false); entries[Number(row.dataset.i)].fn(); }
+});
+$("palette").addEventListener("click", (e) => { if (e.target === $("palette")) togglePalette(false); });
+
+/* ---------------- tetthetsmodus: Kompakt vs Lesbar ---------------- */
+function toggleDensity(force) {
+  const on = force ?? !document.body.classList.contains("lesbar");
+  document.body.classList.toggle("lesbar", on);
+  try { localStorage.setItem("mbDensity", on ? "lesbar" : "kompakt"); } catch { /* ok */ }
+  clampPass();
+}
+
+function clampPass() {
+  const lesbar = document.body.classList.contains("lesbar");
+  document.querySelectorAll("#briefing .pBody li").forEach((li) => {
+    if (li.classList.contains("claimDetail")) return;
+    li.classList.remove("clamp", "open");
+    if (lesbar && (li.textContent || "").length > 230) li.classList.add("clamp");
+  });
+}
+
+$("btnDensity").addEventListener("click", () => toggleDensity());
+
+document.addEventListener("keydown", (e) => {
+  const typing = /input|textarea/i.test(document.activeElement?.tagName || "");
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); togglePalette(); }
+  else if (e.key === "Escape") { $("palette").classList.add("hidden"); $("stockModal").classList.add("hidden"); }
+  else if (!typing && e.key.toLowerCase() === "t") toggleDensity();
+});
+
+/* ---------------- aksjekort ---------------- */
+function openStock(tick) {
+  const key = Object.keys(SECTIONS).find((k) => k.toUpperCase() === `FOKUS: ${tick}`.toUpperCase()) || "";
+  const s = key ? SECTIONS[key] : null;
+  const secBody = (LAST_SECS.find((x) => x.heading.toUpperCase() === key) || {}).body || "";
+  const srcIdx = [...new Set([...secBody.matchAll(/\[\[C:(\d+)\]\]/g)].map((m) => Number(m[1])))];
+  const vals = HIST.map((h) => h.focus?.[tick]).filter((v) => typeof v === "number");
+  const ins = DATA?.insider?.ok ? DATA.insider.byTicker?.[tick] : null;
+  const ob = tick.toUpperCase().endsWith(".OL") && DATA?.oslo?.ok ? DATA.oslo.byIssuer?.[tick.slice(0, -3)] : null;
+  const events = (DATA?.calendar?.ok ? DATA.calendar.events || [] : []).filter((e) => e.label.toUpperCase().includes(tick.split(".")[0]));
+
+  let h = `<div class="pHead"><span>${escapeHtml(tick)} // AKSJEKORT</span><button class="btnMini" id="stockClose">&times;</button></div><div class="pBody">`;
+  if (s) {
+    h += `<div class="stockTop">${gaugeSVG(s.score, 110)}<div><div class="gaugeLbl ${scoreCls(s.score)}">${scoreWord(s.score)}</div>` +
+      `${s.lowConf ? '<span class="tag tag-eldre">LAV KONFIDENS</span>' : ""}` +
+      `${vals.length >= 2 ? `<div class="dim" style="margin-top:4px">30 d: ${sparkSVG(vals, 160, 28)}</div>` : ""}</div></div>`;
+    const fac = [...(s.drivers || []).map((d) => `<span class="${scoreCls(d.score)}">[${d.score}]</span> ${escapeHtml(d.text)}`),
+      ...(s.structFactors || []).map((f) => `<span class="dim">[data]</span> ${escapeHtml(f)}`)];
+    if (fac.length) h += `<div class="wSub">DRIVERE & FAKTORER</div>${fac.map((f) => `<div class="cntRow">${f}</div>`).join("")}`;
+  } else {
+    h += `<p class="dim">Ingen score i dagens brief for ${escapeHtml(tick)}.</p>`;
+  }
+  if (events.length) h += `<div class="wSub">KOMMENDE</div>` + events.map((e) => `<div class="cntRow"><span class="tag tag-uke">om ${e.days} d</span> ${escapeHtml(e.label)} (${e.date.slice(5)})</div>`).join("");
+  if (ins?.form4?.length) {
+    h += `<div class="wSub">INNSIDEHANDEL (SEC)</div>` + ins.form4.map((f) =>
+      `<div class="cntRow"><span class="tag ${f.side === "SALG" ? "tag-rykte" : f.side === "KJØP" ? "tag-idag" : "tag-eldre"}">${escapeHtml(f.side || "?")}</span> ${escapeHtml(f.owner || "")} <span class="dim">${f.date}</span> ${f.url ? `<a class="srcRef" href="${escapeHtml(f.url)}" target="_blank" rel="noopener noreferrer">[SEC]</a>` : ""}</div>`).join("");
+  }
+  if (ob?.length) {
+    h += `<div class="wSub">BØRSMELDINGER</div>` + ob.slice(0, 5).map((m) =>
+      `<div class="cntRow">${m.meldepliktig ? '<span class="tag tag-rykte">MELDEPLIKTIG</span> ' : ""}<a class="obLink" href="${escapeHtml(m.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(m.title.slice(0, 60))}</a> <span class="dim">(${m.date.slice(5)})</span></div>`).join("");
+  }
+  if (srcIdx.length) {
+    h += `<div class="wSub">KILDER I DAGENS OMTALE</div><div class="srcList">` + srcIdx.map((n) => {
+      const src = SRCS[n];
+      return src ? `<a href="${escapeHtml(src.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(domainOf(src.url))}</a>` : "";
+    }).filter(Boolean).join(" · ") + `</div>`;
+  }
+  h += `</div>`;
+  $("stockBox").innerHTML = h;
+  $("stockModal").classList.remove("hidden");
+  $("stockClose").addEventListener("click", () => $("stockModal").classList.add("hidden"));
+}
+$("stockModal").addEventListener("click", (e) => { if (e.target === $("stockModal")) $("stockModal").classList.add("hidden"); });
+
+/* ---------------- profiler (egen watchlist per venn, felles brief) ---------------- */
+const PROFILE = () => { try { return localStorage.getItem("mbProfile") || ""; } catch { return ""; } };
+const pSuf = () => (PROFILE() ? `?profile=${encodeURIComponent(PROFILE())}` : "");
+
+async function pickProfile(force = false) {
+  if (!force && PROFILE()) return;
+  let profiles = [];
+  try { profiles = (await (await fetch("/api/profiles")).json()).profiles || []; } catch { /* ok */ }
+  const m = document.createElement("div");
+  m.className = "modal";
+  m.innerHTML =
+    `<div class="modalBox" style="max-width:380px"><div class="pHead"><span>HVEM SER PÅ?</span></div><div class="pBody">` +
+    `<p class="dim" style="margin-bottom:8px">Egen watchlist for kurser og widgets. Briefen er felles for alle.</p>` +
+    `<div>${profiles.map((p) => `<button class="btnMini profBtn" data-p="${escapeHtml(p)}">${escapeHtml(p).toUpperCase()}</button>`).join(" ")} ` +
+    `<button class="btnMini profBtn" data-p="">FELLES</button></div>` +
+    `<form id="profForm" style="margin-top:10px;display:flex;gap:6px">` +
+    `<input id="profName" placeholder="ny profil (a-z, 0-9)" maxlength="16" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--line);padding:6px 8px;font-family:var(--mono);font-size:12px;outline:none"/>` +
+    `<button class="btnMini" type="submit">OPPRETT</button></form></div></div>`;
+  document.body.appendChild(m);
+  m.addEventListener("click", (e) => {
+    const b = e.target.closest(".profBtn");
+    if (b) { try { localStorage.setItem("mbProfile", b.dataset.p); } catch { } m.remove(); location.reload(); }
+    else if (e.target === m && PROFILE() !== null) m.remove();
+  });
+  m.querySelector("#profForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = m.querySelector("#profName").value.trim();
+    if (!name) return;
+    const r = await fetch("/api/profiles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    if (r.ok) {
+      const j = await r.json();
+      try { localStorage.setItem("mbProfile", j.added); } catch { }
+      m.remove();
+      location.reload();
+    }
+  });
+}
+
 /* ---------------- claim-detaljer (klikk på badge/score) ---------------- */
 $("main").addEventListener("click", (e) => {
+  const g = e.target.closest(".gaugeMini, .gaugeWrap");
+  if (g && g.dataset.sec) { showSecFactors(g.dataset.sec, g); return; }
+  const ft = e.target.closest(".fokusTitle");
+  if (ft && ft.dataset.tick) { openStock(ft.dataset.tick); return; }
+  const cl = e.target.closest("li.clamp");
+  if (cl && !e.target.closest("a, button")) { cl.classList.toggle("open"); return; }
   const btn = e.target.closest(".vBadge, .scoreChip[data-claim]");
   if (!btn || !btn.dataset.claim) return;
   const c = CLAIMS[Number(btn.dataset.claim)];
@@ -511,7 +795,7 @@ function fmtPx(n) {
 }
 async function loadTape() {
   try {
-    const r = await fetch("/api/quotes");
+    const r = await fetch("/api/quotes" + pSuf());
     const data = await r.json();
     if (!data.quotes) return;
     const tape = $("tape");
@@ -522,6 +806,12 @@ async function loadTape() {
       if (!q.ok) {
         chip.innerHTML = `<span class="sym">${escapeHtml(q.label)}</span><span class="dim">n/a</span>`;
       } else {
+        if (q.ts) {
+          const min = Math.max(0, Math.round((Date.now() / 1000 - q.ts) / 60));
+          chip.title = `${q.source || "kilde"} · oppdatert for ${min} min siden${min > 2 ? " (forsinket)" : ""}`;
+        } else {
+          chip.title = `${q.source || "kilde"} · ukjent alder på kursen`;
+        }
         const dir = q.changePct >= 0 ? "up" : "down";
         const arrow = q.changePct >= 0 ? "▲" : "▼";
         let extra = "";
@@ -539,6 +829,95 @@ async function loadTape() {
   } catch { /* tapen er kosmetisk */ }
 }
 setInterval(loadTape, 60_000);
+
+/* ---------------- datalag-widgets (fase 1) ---------------- */
+function ageMin(iso) {
+  return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+}
+
+function widgetPanel(title, ok, bodyHtml, meta) {
+  return `<section class="panel"><div class="pHead"><span>${title}</span>` +
+    (meta ? `<span class="fetchStamp">${escapeHtml(meta)}</span>` : "") + `</div>` +
+    `<div class="pBody wBody">${ok ? bodyHtml : `<p class="dim">Kilde utilgjengelig: ${escapeHtml(bodyHtml)}</p>`}</div></section>`;
+}
+
+function renderDataRow(d) {
+  const row = $("dataRow");
+  let html = "";
+
+  // MAKRO (FRED)
+  if (d.macro?.ok && d.macro.macro) {
+    const m = d.macro.macro;
+    const num = (o, suffix) => o
+      ? `<div class="macroNum"><span class="bigNum">${o.value}${suffix}</span><span class="dim"> ${escapeHtml(o.label)} <span title="per ${o.date}">(${o.date.slice(5)})</span></span></div>`
+      : "";
+    html += widgetPanel("MAKRO USA", true,
+      num(m.rate, " %") + num(m.cpiYoY, " %") + num(m.unemployment, " %"),
+      `FRED · ${ageMin(d.macro.at)} min`);
+  } else if (d.macro) {
+    html += widgetPanel("MAKRO USA", false, d.macro.error || "ukjent feil");
+  }
+
+  // NESTE 7 DAGER
+  if (d.calendar?.ok) {
+    const ev = d.calendar.events || [];
+    html += widgetPanel("NESTE 7 DAGER", true,
+      ev.length
+        ? ev.map((e) => `<div class="cntRow"><span class="tag ${e.days <= 1 ? "tag-idag" : "tag-uke"}">${e.days === 0 ? "I DAG" : `om ${e.days} d`}</span> ${escapeHtml(e.label)} <span class="dim">(${e.date.slice(5)})</span></div>`).join("")
+        : '<p class="dim">Ingen kjente hendelser neste 7 dager.</p>',
+      `${ageMin(d.calendar.at)} min`);
+  } else if (d.calendar) {
+    html += widgetPanel("NESTE 7 DAGER", false, d.calendar.error || "ukjent feil");
+  }
+
+  // INNSIDEHANDEL (EDGAR)
+  if (d.insider?.ok && d.insider.byTicker) {
+    let b = "";
+    for (const [t, x] of Object.entries(d.insider.byTicker)) {
+      const s = x.summary || {};
+      b += `<div class="wSub">${escapeHtml(t)} <span class="dim">· siste ${s.sampled || 0} Form 4: </span>` +
+        `<span class="${s.sells > s.buys ? "down" : s.buys > s.sells ? "up" : "dim"}">${s.sells || 0} salg / ${s.buys || 0} kjøp</span></div>`;
+      for (const f of x.form4 || []) {
+        const cls = f.side === "SALG" ? "tag-rykte" : f.side === "KJØP" ? "tag-idag" : "tag-eldre";
+        b += `<div class="cntRow"><span class="tag ${cls}">${escapeHtml(f.side || "?")}</span> ` +
+          `${escapeHtml(f.owner || "ukjent")} <span class="dim">${f.shares ? Math.round(f.shares).toLocaleString("nb-NO") + " aksjer · " : ""}${f.date.slice(5)}</span>` +
+          (f.url ? ` <a class="srcRef" href="${escapeHtml(f.url)}" target="_blank" rel="noopener noreferrer">[SEC]</a>` : "") + `</div>`;
+      }
+    }
+    html += widgetPanel("INNSIDEHANDEL", true, b || '<p class="dim">Ingen Form 4 funnet.</p>', `SEC EDGAR · ${ageMin(d.insider.at)} min`);
+  } else if (d.insider) {
+    html += widgetPanel("INNSIDEHANDEL", false, d.insider.error || "ukjent feil");
+  }
+
+  // BØRSMELDINGER OSLO (NewsWeb)
+  if (d.oslo?.ok && d.oslo.byIssuer) {
+    let b = "";
+    for (const [t, msgs] of Object.entries(d.oslo.byIssuer)) {
+      b += `<div class="wSub">${escapeHtml(t)}</div>`;
+      for (const m of (msgs || []).slice(0, 5)) {
+        b += `<div class="cntRow">${m.meldepliktig ? '<span class="tag tag-rykte">MELDEPLIKTIG</span> ' : ""}` +
+          (m.url ? `<a class="obLink" href="${escapeHtml(m.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(m.title.slice(0, 60))}</a>` : escapeHtml(m.title.slice(0, 60))) +
+          ` <span class="dim">(${m.date.slice(5)})</span></div>`;
+      }
+      if (!(msgs || []).length) b += '<p class="dim">Ingen meldinger siste 14 dager.</p>';
+    }
+    html += widgetPanel("BØRSMELDINGER OSLO", true, b, `NewsWeb · ${ageMin(d.oslo.at)} min`);
+  } else if (d.oslo) {
+    html += widgetPanel("BØRSMELDINGER OSLO", false, d.oslo.error || "ukjent feil");
+  }
+
+  row.innerHTML = html;
+  row.classList.toggle("hidden", !html);
+}
+
+async function loadData() {
+  try {
+    const r = await fetch("/api/data" + pSuf());
+    if (!r.ok) return;
+    DATA = await r.json();
+    renderDataRow(DATA);
+  } catch { /* widgets er tillegg - aldri blokkerende */ }
+}
 
 /* ---------------- chat ---------------- */
 const chatPanel = $("chatPanel");
@@ -665,7 +1044,7 @@ function renderCompanyRows() {
 }
 
 $("btnSettings").addEventListener("click", async () => {
-  const r = await fetch("/api/settings");
+  const r = await fetch("/api/settings" + pSuf());
   const s = await r.json();
   favEdit = s.favorites.map((c) => ({ ...c }));
   renderCompanyRows();
@@ -675,7 +1054,7 @@ $("btnSettings").addEventListener("click", async () => {
 $("btnSettingsClose").addEventListener("click", () => $("settingsModal").classList.add("hidden"));
 $("btnAddCompany").addEventListener("click", () => { favEdit.push({ label: "", ticker: "", angle: "" }); renderCompanyRows(); });
 $("btnSaveSettings").addEventListener("click", async () => {
-  const r = await fetch("/api/settings", {
+  const r = await fetch("/api/settings" + pSuf(), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ favorites: favEdit }),
@@ -720,13 +1099,22 @@ function showLoginOverlay() {
 
 /* ---------------- init ---------------- */
 (async function init() {
+  try { if (localStorage.getItem("mbDensity") === "lesbar") document.body.classList.add("lesbar"); } catch { /* ok */ }
   loadTape();
   loadChat();
+  loadData();
+  loadHistory();
   try {
     const r = await fetch("/api/meta");
     if (r.status === 401) return showLoginOverlay();
     META = await r.json();
-    $("modelTag").textContent = META.model;
+    $("modelTag").textContent = META.model + (PROFILE() ? " · " + PROFILE().toUpperCase() : "");
+    try {
+      if (!localStorage.getItem("mbProfileAsked")) {
+        localStorage.setItem("mbProfileAsked", "1");
+        if (!PROFILE()) pickProfile(true);
+      }
+    } catch { /* ok */ }
     if (!META.hasAnthropicKey) {
       banner("ANTHROPIC_API_KEY mangler - legg den i .env og restart. Generering deaktivert.", true);
       led.className = "led err";
@@ -743,7 +1131,7 @@ function showLoginOverlay() {
           `GENERERT ${b.meta.generatedAtCET || b.meta.generatedAt || ""} • ${b.date}${searchTag} • FOKUS: ${b.meta.focus || ""}`,
           b.sources || [],
           b.meta.generatedAtCET || "",
-          { claims: b.claims, sections: b.sections, overall: b.overall, deltas: b.deltas }
+          { claims: b.claims, sections: b.sections, overall: b.overall, deltas: b.deltas, delta: b.delta }
         );
         $("briefFoot").innerHTML =
           `Lagret i <span class="code">briefings/${b.date}.md</span> — åpne den mappen med Claude Desktop/Code for å gå dypere.`;

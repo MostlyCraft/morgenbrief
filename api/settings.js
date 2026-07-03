@@ -5,10 +5,11 @@ import { getSettings, saveSettings } from "../lib/store.js";
 
 export default async function handler(req, res) {
   if (!requireAuth(req, res)) return;
+  const profile = (req.query?.profile ?? new URL(req.url, "http://x").searchParams.get("profile")) || "";
   try {
-    if (req.method === "GET") return json(res, 200, await getSettings());
+    if (req.method === "GET") return json(res, 200, await getSettings(profile));
     if (req.method === "PUT") {
-      try { return json(res, 200, await saveSettings(await readBody(req))); }
+      try { return json(res, 200, await saveSettings(await readBody(req), profile)); }
       catch (e) { return json(res, 400, { error: String(e.message || e) }); }
     }
     res.writeHead(405);

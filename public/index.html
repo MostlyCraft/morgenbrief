@@ -28,7 +28,9 @@
     <span id="hDate" class="hDate"></span>
     <span id="hClock" class="hClock">--:--:--</span><span class="tz">CET</span>
     <button id="btnGenerate" class="btnGen">GENERER BRIEF</button>
+    <button id="btnDelta" class="btnMini" title="Intradag-oppdatering: nytt siden i morges (maks 2/dag)">NYTT NÅ</button>
     <button id="btnShare" class="btnIcon" title="Kopier delbart sammendrag">&#10548;</button>
+    <button id="btnDensity" class="btnIcon" title="Kompakt/Lesbar visning (tast: t)">&#9776;</button>
     <button id="btnSettings" class="btnIcon" title="Favoritter / innstillinger">&#9881;</button>
     <button id="btnChat" class="btnIcon" title="Vis/skjul chat">&#9993;</button>
   </div>
@@ -39,6 +41,7 @@
 
 <div id="layout">
   <main id="main">
+    <div id="dataRow" class="cols4 hidden"></div>
     <div id="empty" class="empty hidden">
       <pre>INGEN BRIEF FOR I DAG.
 TRYKK [GENERER BRIEF] OG VELG DAGENS FOKUS.</pre>
@@ -52,6 +55,10 @@ TRYKK [GENERER BRIEF] OG VELG DAGENS FOKUS.</pre>
     <div id="briefing" class="hidden">
       <div class="briefMeta" id="briefMeta"></div>
       <div id="bbStrip" class="bbStrip hidden"></div>
+      <section id="deltaPanel" class="panel hidden">
+        <div class="pHead deltaHead"><span>NYTT SIDEN I MORGES</span><span id="deltaStamp" class="fetchStamp"></span></div>
+        <div class="pBody" id="deltaBody"></div>
+      </section>
       <section class="panel" id="p-sitrep">
         <div class="pHead"><span>SITREP // MAKRO &amp; VERDEN</span></div>
         <div class="pBody" id="b-sitrep"></div>
@@ -108,6 +115,18 @@ TRYKK [GENERER BRIEF] OG VELG DAGENS FOKUS.</pre>
       <button id="btnFocusGenerate" class="btnGen">GENERER MED DETTE FOKUSET</button>
     </div>
   </div>
+</div>
+
+<div id="palette" class="modal hidden">
+  <div class="palBox">
+    <input id="palInput" type="text" autocomplete="off" spellcheck="false"
+           placeholder="kommando eller ticker… (gen · delta · kilder · chat · lesbar · profil · ONDS)" />
+    <div id="palList"></div>
+  </div>
+</div>
+
+<div id="stockModal" class="modal hidden">
+  <div class="modalBox" id="stockBox"></div>
 </div>
 
 <div id="settingsModal" class="modal hidden">

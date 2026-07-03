@@ -13,12 +13,13 @@ import { allowRate } from "./lib/ratelimit.js";
 import { kvAvailable, kvGetJSON } from "./lib/kv.js";
 import { isAuthed, handleLoginPost, LOGIN_HTML } from "./lib/auth.js";
 import {
-  metaInfo, generateBrief, chatReply, getQuotesCached,
+  metaInfo, generateBrief, generateDelta, chatReply, getQuotesCached,
   MAX_BRIEFS_PER_DAY, MAX_CHATS_PER_DAY,
 } from "./lib/core.js";
 import {
   ensureDirs, getSettings, saveSettings, getTodayFocus, saveTodayFocus,
   readTodayBriefing, getChatHistory, saveChatHistory, nowCET, storageMode,
+  getBbHistoryRange, getProfiles, addProfile,
 } from "./lib/store.js";
 import { modelName, chatModelName, hasKey } from "./lib/anthropic.js";
 
@@ -90,10 +91,25 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (m === "GET" && p === "/api/meta") return json(res, 200, await metaInfo());
-    if (m === "GET" && p === "/api/settings") return json(res, 200, await getSettings());
+    const profile = url.searchParams.get("profile") || "";
+    if (m === "GET" && p === "/api/settings") return json(res, 200, await getSettings(profile));
     if (m === "PUT" && p === "/api/settings") {
-      try { return json(res, 200, await saveSettings(await readBody(req))); }
+      try { return json(res, 200, await saveSettings(await readBody(req), profile)); }
       catch (e) { return json(res, 400, { error: String(e.message || e) }); }
+    }
+    if (m === "GET" && p === "/api/profiles") return json(res, 200, { profiles: await getProfiles() });
+    if (m === "POST" && p === "/api/profiles") {
+      try { return json(res, 200, { added: await addProfile((await readBody(req)).name) }); }
+      catch (e) { return json(res, 400, { error: String(e.message || e) }); }
+    }
+    if (m === "GET" && p === "/api/history") return json(res, 200, { series: await getBbHistoryRange(30) });
+    if (m === "POST" && p === "/api/briefing/delta") {
+      if (!(await allowRate("delta", ip, 6, 3600))) {
+        sseInit(res);
+        sse(res, { type: "error", message: "For mange delta-forsøk fra denne IP-en - prøv igjen om en time." });
+        return res.end();
+      }
+      return streamHandler(res, async (onStatus, onText) => ({ delta: await generateDelta({ onStatus, onText }) }));
     }
     if (m === "GET" && p === "/api/focus/today") {
       return json(res, 200, { items: await getTodayFocus(), favorites: (await getSettings()).favorites });
@@ -103,7 +119,12 @@ const server = http.createServer(async (req, res) => {
       catch (e) { return json(res, 400, { error: String(e.message || e) }); }
     }
     if (m === "GET" && p === "/api/quotes") {
-      try { return json(res, 200, await getQuotesCached({ fresh: url.searchParams.get("fresh") === "1" })); }
+      try { return json(res, 200, await getQuotesCached({ fresh: url.searchParams.get("fresh") === "1", profile })); }
+      catch (e) { return json(res, 500, { error: String(e.message || e) }); }
+    }
+    if (m === "GET" && p === "/api/data") {
+      const { getStructuredData } = await import("./lib/marketdata.js");
+      try { return json(res, 200, await getStructuredData((await getSettings(profile)).favorites)); }
       catch (e) { return json(res, 500, { error: String(e.message || e) }); }
     }
     if (m === "GET" && p === "/api/briefing/today") {

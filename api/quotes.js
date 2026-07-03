@@ -7,8 +7,10 @@ export default async function handler(req, res) {
   if (!requireAuth(req, res)) return;
   if (req.method !== "GET") { res.writeHead(405); return res.end(); }
   try {
-    const fresh = (req.query?.fresh ?? new URL(req.url, "http://x").searchParams.get("fresh")) === "1";
-    json(res, 200, await getQuotesCached({ fresh }));
+    const q = new URL(req.url, "http://x").searchParams;
+    const fresh = (req.query?.fresh ?? q.get("fresh")) === "1";
+    const profile = (req.query?.profile ?? q.get("profile")) || "";
+    json(res, 200, await getQuotesCached({ fresh, profile }));
   } catch (e) {
     json(res, 500, { error: String(e.message || e) });
   }
