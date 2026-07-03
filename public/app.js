@@ -79,6 +79,20 @@ function inlineMd(s, sources = []) {
   let h = escapeHtml(s);
   h = h.replace(/`([^`]+)`/g, '<span class="code">$1</span>');
   h = h.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  // Sikkerhetsnett: skulle en faktortagg overleve backend-strippingen,
+  // oversettes den til klartekst-chip - rå koder skal ALDRI vises.
+  h = h
+    .replace(/\[BB:HARD\+\]/gi, '<span class="tag tag-idag">BULLISH</span>')
+    .replace(/\[BB:HARD-\]/gi, '<span class="tag tag-rykte">BEARISH</span>')
+    .replace(/\[BB:MYK\+\]/gi, '<span class="tag tag-idag">MILD BULL</span>')
+    .replace(/\[BB:MYK-\]/gi, '<span class="tag tag-rykte">MILD BEAR</span>')
+    .replace(/\[BB:N[ØO]YTRAL\]/gi, '<span class="tag tag-uke">NØYTRAL</span>')
+    .replace(/\[MAT:H[ØO]Y\]/gi, '<span class="tag tag-eldre">Høy betydning</span>')
+    .replace(/\[MAT:MED\]/gi, '<span class="tag tag-eldre">Middels betydning</span>')
+    .replace(/\[MAT:LAV\]/gi, '<span class="tag tag-eldre">Lav betydning</span>')
+    .replace(/\[INSIDER:SALG\]/gi, '<span class="tag tag-rykte">Innsidesalg</span>')
+    .replace(/\[INSIDER:KJ[ØO]P\]/gi, '<span class="tag tag-idag">Innsidekjøp</span>')
+    .replace(/\[KONFLIKT\]/gi, '<span class="tag tag-uke">SPRIKER</span>');
   // tidstagger -> chips: [I DAG 03.07], [DENNE UKEN], [ELDRE], [RYKTE], [UBEKREFTET]
   h = h.replace(
     /\[(I DAG|DENNE UKEN|DENNE MÅNEDEN|ELDRE(?: KONTEKST)?|RYKTE|UBEKREFTET)((?:\s[^\]\[C][^\]\[]*)?)\]/g,
@@ -180,21 +194,29 @@ function renderBriefing(markdown, metaLine, sources = [], stamp = "", extra = {}
   SRCS = sources;
   document.querySelectorAll(".claimDetail").forEach((d) => d.remove());
   const secs = parseSections(markdown);
+  // Tolerant seksjonsmatch: "DAGENS KALENDER", "OPPSUMMERING" osv. treffer også.
+  // FOKUS-seksjoner holdes utenfor så f.eks. "USA" aldri matcher en fokus-boks.
+  const fixed = secs.filter((s) => !/^FOKUS/i.test(s.heading));
   const get = (...names) => {
     for (const n of names) {
-      const hit = secs.find((s) => s.heading.toUpperCase().startsWith(n));
+      const hit = fixed.find((s) => s.heading.toUpperCase().includes(n));
       if (hit) return hit.body;
     }
-    return "_seksjon mangler_";
+    return null; // aldri rå placeholder - håndteres ærlig under
+  };
+  const fill = (id, body) => {
+    $(id).innerHTML = body != null
+      ? renderSection(body, sources)
+      : '<p class="dim">Ingen data for denne seksjonen i dagens brief.</p>';
   };
 
-  $("b-sitrep").innerHTML = renderSection(get("SITREP"), sources);
-  $("b-usa").innerHTML = renderSection(get("USA", "AMERICA"), sources);
-  $("b-europa").innerHTML = renderSection(get("EUROPA", "EUROPE"), sources);
-  $("b-norge").innerHTML = renderSection(get("NORGE", "NORWAY"), sources);
-  $("b-asia").innerHTML = renderSection(get("ASIA"), sources);
-  $("b-kalender").innerHTML = renderSection(get("KALENDER", "CALENDAR"), sources);
-  $("b-oppsummert").innerHTML = renderSection(get("OPPSUMMERT", "ONE-LINER"), sources);
+  fill("b-sitrep", get("SITREP"));
+  fill("b-usa", get("USA", "AMERICA"));
+  fill("b-europa", get("EUROPA", "EUROPE"));
+  fill("b-norge", get("NORGE", "NORWAY"));
+  fill("b-asia", get("ASIA"));
+  fill("b-kalender", get("KALENDER", "CALENDAR"));
+  fill("b-oppsummert", get("OPPSUMMER", "ONE-LINER", "SUMMARY"));
 
   const focus = secs.filter((s) => s.heading.toUpperCase().startsWith("FOKUS") || s.heading.toUpperCase().startsWith("FOCUS"));
   const wrap = $("focusWrap");
