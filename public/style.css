@@ -151,6 +151,40 @@ header {
 .cols4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; }
 .cols4 .panel, .cols2 .panel { margin-bottom: 0; }
 .panel.norge .pHead { border-left-color: #4da6ff; color: #4da6ff; }
+
+/* ---- kilder + tidslag (v1.4) ---- */
+.subHead {
+  margin: 9px 0 4px; padding: 3px 8px;
+  font-size: 10.5px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--dim); background: var(--panel2);
+  border-left: 2px solid var(--amber-dim);
+}
+.subHead.rykter { border-left-color: var(--red); color: #d98c8c; }
+.srcRef {
+  color: var(--amber-dim); text-decoration: none;
+  font-size: 10.5px; margin-left: 3px; white-space: nowrap;
+}
+.srcRef:hover { color: var(--amber); text-decoration: underline; }
+.srcList {
+  margin-top: 8px; padding-top: 6px;
+  border-top: 1px dashed var(--line);
+  font-size: 10.5px; color: var(--dim); letter-spacing: .5px;
+  word-break: break-word;
+}
+.srcList a { color: var(--dim); text-decoration: none; }
+.srcList a:hover { color: var(--amber); text-decoration: underline; }
+.tag {
+  display: inline-block; font-size: 9.5px; letter-spacing: 1px;
+  padding: 0 5px; margin-right: 6px; border: 1px solid;
+  vertical-align: 1px; white-space: nowrap;
+}
+.tag-idag { color: var(--green); border-color: #1c5c3a; background: #0a1f14; }
+.tag-uke { color: var(--amber); border-color: var(--amber-dim); background: #1a1206; }
+.tag-mnd { color: #c9a648; border-color: #4d3f14; background: #14100a; }
+.tag-eldre { color: var(--dim); border-color: var(--line); }
+.tag-rykte { color: var(--red); border-color: #5c2222; background: #1d0a0a; }
+.fetchStamp { font-size: 9.5px; color: var(--dim); letter-spacing: .5px; text-transform: none; font-weight: normal; }
+.msg .srcList { font-size: 10px; }
 .cols2 { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 10px; }
 .focusGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; }
 .focusGrid .panel { margin-bottom: 0; }

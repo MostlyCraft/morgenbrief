@@ -54,40 +54,90 @@ function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/* markdown-lett: punkter, fet, `kode`, %-farging, "Poenget:"-utheving */
-function inlineMd(s) {
+/* ---------------- kilder + tidstagger ---------------- */
+let USED_SRC = new Set(); // kilder brukt i inneværende seksjon (styres av renderSection)
+
+function domainOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "kilde"; }
+}
+
+function tagClass(t) {
+  if (t.startsWith("I DAG")) return "tag-idag";
+  if (t.startsWith("DENNE UKEN")) return "tag-uke";
+  if (t.startsWith("DENNE MÅNEDEN")) return "tag-mnd";
+  if (t.startsWith("RYKTE") || t.startsWith("UBEKREFTET")) return "tag-rykte";
+  return "tag-eldre";
+}
+
+/* markdown-lett: punkter, fet, `kode`, %-farging, "Poenget:", tidstagger, kildemarkører */
+function inlineMd(s, sources = []) {
   let h = escapeHtml(s);
   h = h.replace(/`([^`]+)`/g, '<span class="code">$1</span>');
   h = h.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  // tidstagger -> chips: [I DAG 03.07], [DENNE UKEN], [ELDRE], [RYKTE], [UBEKREFTET]
+  h = h.replace(
+    /\[(I DAG|DENNE UKEN|DENNE MÅNEDEN|ELDRE(?: KONTEKST)?|RYKTE|UBEKREFTET)((?:\s[^\]\[C][^\]\[]*)?)\]/g,
+    (m, t, extra) => `<span class="tag ${tagClass(t)}">${t}${extra || ""}</span>`
+  );
+  // kildemarkører -> klikkbare [domene]-lenker (ny fane)
+  h = h.replace(/\[\[C:(\d+)\]\]/g, (m, n) => {
+    const src = sources[Number(n)];
+    if (!src || !src.url) return "";
+    USED_SRC.add(Number(n));
+    return `<a class="srcRef" href="${escapeHtml(src.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(src.title || src.url)}">[${escapeHtml(domainOf(src.url))}]</a>`;
+  });
   h = h.replace(/(^|[\s(>])([+]\d+(?:[.,]\d+)?\s?%)/g, '$1<span class="up">$2</span>');
   h = h.replace(/(^|[\s(>])([-−]\d+(?:[.,]\d+)?\s?%)/g, '$1<span class="down">$2</span>');
   return h;
 }
 
-function renderMd(text, { firstLineQuote = false } = {}) {
+function renderMd(text, { firstLineQuote = false, sources = [] } = {}) {
   const lines = text.split("\n");
   let html = "", inList = false, first = true;
   const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
   for (let raw of lines) {
     const line = raw.trimEnd();
     if (!line.trim()) { closeList(); continue; }
+    // ### underoverskrifter = tidslag (I DAG / SISTE UKE / SISTE MÅNED / RYKTER)
+    if (/^###\s+/.test(line.trim())) {
+      closeList();
+      const t = line.trim().replace(/^###\s+/, "");
+      const cls = /RYKTER|UBEKREFTET/i.test(t) ? " rykter" : "";
+      html += `<div class="subHead${cls}">${inlineMd(t, sources)}</div>`;
+      first = false;
+      continue;
+    }
     const stripped = line.replace(/^[-*]\s+/, "");
     const isBullet = /^[-*]\s+/.test(line.trim());
     const isPoint = /^\*{0,2}`?(poenget|so what):?/i.test(stripped.trim());
     if (isPoint) {
       closeList();
-      html += `<div class="sowhat">${inlineMd(stripped.replace(/[`*]/g, ""))}</div>`;
+      html += `<div class="sowhat">${inlineMd(stripped.replace(/[`*]/g, ""), sources)}</div>`;
     } else if (isBullet) {
       if (!inList) { html += "<ul>"; inList = true; }
-      html += `<li>${inlineMd(line.trim().replace(/^[-*]\s+/, ""))}</li>`;
+      html += `<li>${inlineMd(line.trim().replace(/^[-*]\s+/, ""), sources)}</li>`;
     } else {
       closeList();
       const cls = first && firstLineQuote ? "qline" : "";
-      html += `<p class="${cls}">${inlineMd(line.replace(/^#+\s*/, ""))}</p>`;
+      html += `<p class="${cls}">${inlineMd(line.replace(/^#+\s*/, ""), sources)}</p>`;
     }
     first = false;
   }
   closeList();
+  return html;
+}
+
+/* seksjon = innhold + KILDER-liste nederst med alle URL-er brukt i seksjonen */
+function renderSection(text, sources = [], opts = {}) {
+  USED_SRC = new Set();
+  let html = renderMd(text, { ...opts, sources });
+  if (USED_SRC.size) {
+    const items = [...USED_SRC].map((n) => {
+      const s = sources[n];
+      return `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(s.title || s.url)}">${escapeHtml(domainOf(s.url))}</a>`;
+    }).join(" · ");
+    html += `<div class="srcList">KILDER: ${items}</div>`;
+  }
   return html;
 }
 
@@ -104,7 +154,7 @@ function parseSections(markdown) {
   return sections;
 }
 
-function renderBriefing(markdown, metaLine) {
+function renderBriefing(markdown, metaLine, sources = [], stamp = "") {
   const secs = parseSections(markdown);
   const get = (...names) => {
     for (const n of names) {
@@ -114,13 +164,13 @@ function renderBriefing(markdown, metaLine) {
     return "_seksjon mangler_";
   };
 
-  $("b-sitrep").innerHTML = renderMd(get("SITREP"));
-  $("b-usa").innerHTML = renderMd(get("USA", "AMERICA"));
-  $("b-europa").innerHTML = renderMd(get("EUROPA", "EUROPE"));
-  $("b-norge").innerHTML = renderMd(get("NORGE", "NORWAY"));
-  $("b-asia").innerHTML = renderMd(get("ASIA"));
-  $("b-kalender").innerHTML = renderMd(get("KALENDER", "CALENDAR"));
-  $("b-oppsummert").innerHTML = renderMd(get("OPPSUMMERT", "ONE-LINER"));
+  $("b-sitrep").innerHTML = renderSection(get("SITREP"), sources);
+  $("b-usa").innerHTML = renderSection(get("USA", "AMERICA"), sources);
+  $("b-europa").innerHTML = renderSection(get("EUROPA", "EUROPE"), sources);
+  $("b-norge").innerHTML = renderSection(get("NORGE", "NORWAY"), sources);
+  $("b-asia").innerHTML = renderSection(get("ASIA"), sources);
+  $("b-kalender").innerHTML = renderSection(get("KALENDER", "CALENDAR"), sources);
+  $("b-oppsummert").innerHTML = renderSection(get("OPPSUMMERT", "ONE-LINER"), sources);
 
   const focus = secs.filter((s) => s.heading.toUpperCase().startsWith("FOKUS") || s.heading.toUpperCase().startsWith("FOCUS"));
   const wrap = $("focusWrap");
@@ -130,7 +180,7 @@ function renderBriefing(markdown, metaLine) {
     panel.className = "panel";
     panel.innerHTML =
       `<div class="pHead"><span>${escapeHtml(s.heading)}${i === 0 ? " // PRIMÆR" : ""}</span></div>` +
-      `<div class="pBody">${renderMd(s.body, { firstLineQuote: true })}</div>`;
+      `<div class="pBody">${renderSection(s.body, sources, { firstLineQuote: true })}</div>`;
     if (i === 0) {
       wrap.appendChild(panel);
     } else {
@@ -139,6 +189,15 @@ function renderBriefing(markdown, metaLine) {
       grid.appendChild(panel);
     }
   });
+
+  // «hentet HH:MM CET» øverst i hver boks
+  if (stamp) {
+    document.querySelectorAll("#briefing .panel .pHead").forEach((h) => {
+      let el = h.querySelector(".fetchStamp");
+      if (!el) { el = document.createElement("span"); el.className = "fetchStamp"; h.appendChild(el); }
+      el.textContent = `hentet ${stamp}`;
+    });
+  }
 
   $("briefMeta").textContent = metaLine || "";
   $("empty").classList.add("hidden");
@@ -210,7 +269,13 @@ async function generateBriefing(focusItems) {
       onText: (t) => append(escapeHtml(t)),
       onDone: (evt) => {
         const cacheTag = evt.cached ? " • FRA CACHE (allerede generert i dag)" : "";
-        renderBriefing(evt.markdown, `GENERERT ${evt.generatedAtCET}${cacheTag} • LAGRET ${evt.savedTo}`);
+        const searchTag = evt.searches != null ? ` • ${evt.searches} WEBSØK` : "";
+        renderBriefing(
+          evt.markdown,
+          `GENERERT ${evt.generatedAtCET}${cacheTag}${searchTag} • LAGRET ${evt.savedTo}`,
+          evt.sources || [],
+          evt.generatedAtCET || ""
+        );
         $("briefFoot").innerHTML =
           `Lagret i <span class="code">${escapeHtml(evt.savedTo)}</span> — åpne briefings-mappen med Claude Desktop/Code for å gå dypere.`;
         led.className = "led on";
@@ -369,7 +434,7 @@ async function loadChat() {
     const { messages } = await r.json();
     chatLog.innerHTML = "";
     for (const m of messages) {
-      chatMsg(m.role, m.role === "user" ? escapeHtml(m.content) : renderMd(m.content));
+      chatMsg(m.role, m.role === "user" ? escapeHtml(m.content) : renderSection(m.content, m.sources || []));
     }
   } catch { /* ignorer */ }
 }
@@ -389,10 +454,14 @@ $("chatForm").addEventListener("submit", async (e) => {
       onStatus: (s) => { statusEl.textContent = `▪ ${s}`; },
       onText: (t) => {
         raw += t;
-        replyEl.innerHTML = renderMd(raw);
+        replyEl.innerHTML = renderMd(raw, { sources: [] }); // markører skjules til kildene kommer
         chatLog.scrollTop = chatLog.scrollHeight;
       },
-      onDone: () => statusEl.remove(),
+      onDone: (evt) => {
+        statusEl.remove();
+        replyEl.innerHTML = renderSection(raw, (evt && evt.sources) || []);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      },
       onError: (m) => { statusEl.remove(); replyEl.innerHTML = `<span class="down">FEIL: ${escapeHtml(m)}</span>`; },
     });
   } catch (err) {
@@ -518,7 +587,13 @@ function showLoginOverlay() {
     if (META.hasBriefing) {
       const b = await (await fetch("/api/briefing/today")).json();
       if (b.exists) {
-        renderBriefing(b.markdown, `GENERERT ${b.meta.generatedAtCET || b.meta.generatedAt || ""} • ${b.date} • FOKUS: ${b.meta.focus || ""}`);
+        const searchTag = b.meta.searches ? ` • ${b.meta.searches} WEBSØK` : "";
+        renderBriefing(
+          b.markdown,
+          `GENERERT ${b.meta.generatedAtCET || b.meta.generatedAt || ""} • ${b.date}${searchTag} • FOKUS: ${b.meta.focus || ""}`,
+          b.sources || [],
+          b.meta.generatedAtCET || ""
+        );
         $("briefFoot").innerHTML =
           `Lagret i <span class="code">briefings/${b.date}.md</span> — åpne den mappen med Claude Desktop/Code for å gå dypere.`;
       }

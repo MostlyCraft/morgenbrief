@@ -108,7 +108,10 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req).catch(() => ({}));
       const msg = String(body?.message || "").trim();
       if (!msg) { sseInit(res); sse(res, { type: "error", message: "Tom melding." }); return res.end(); }
-      return streamHandler(res, async (onStatus, onText) => { await chatReply({ message: msg, onStatus, onText }); return {}; });
+      return streamHandler(res, async (onStatus, onText) => {
+        const r = await chatReply({ message: msg, onStatus, onText });
+        return { sources: r.sources || [] };
+      });
     }
 
     if (m === "GET") return serveStatic(req, res, p);

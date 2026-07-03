@@ -43,7 +43,7 @@ Briefen har faste seksjoner:
 - **OPPSUMMERT** — dagens markedsholdning i én setning
 - **DESK-CHAT** (høyre panel) — still oppfølgingsspørsmål; den kjenner dagens brief og kan websøke live. Historikk per dag, nullstilles i morgen.
 
-Alt genereres av Claude (`claude-haiku-4-5` som standard — billig og rask; vil du ha mer analytisk dybde, sett `ANTHROPIC_MODEL=claude-sonnet-4-6` i `.env`, ca. 3–5x dyrere) med **websøk på hvert kall** — ingenting kommer fra gammel treningsdata. Kurser hentes fra Finnhub/Yahoo og mates inn som fasit, så modellen aldri gjetter tall.
+Alt genereres av Claude (`claude-haiku-4-5` som standard — billig og rask; vil du ha mer analytisk dybde, sett `ANTHROPIC_MODEL=claude-sonnet-4-6` i `.env`, ca. 3–5x dyrere) med **obligatorisk websøk**: prompten krever søk per seksjon, hver påstand får klikkbar kilde (inline + KILDER-liste per boks), alt nyhetsinnhold tidsmerkes ([I DAG] / [DENNE UKEN] / [DENNE MÅNEDEN] / [ELDRE]), og en brief der modellen gjorde 0 søk **avvises automatisk** i stedet for å serveres. Fokus-bokser deles i lag: I DAG / SISTE UKE / SISTE MÅNED / RYKTER (ubekreftet, tydelig merket). Pump-sider (StocksToTrade, Timothy Sykes o.l.) er blokkert som kilder — juster med `BLOCKED_DOMAINS=domene1,domene2` i env. Kurser hentes fra Finnhub/Yahoo og mates inn som fasit, så modellen aldri gjetter tall.
 
 ## Favoritter
 

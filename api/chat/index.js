@@ -18,12 +18,12 @@ export default async function handler(req, res) {
     return res.end();
   }
   try {
-    await chatReply({
+    const r = await chatReply({
       message,
       onStatus: (text) => sse(res, { type: "status", text }),
       onText: (text) => sse(res, { type: "text", text }),
     });
-    sse(res, { type: "done" });
+    sse(res, { type: "done", sources: r.sources || [] });
   } catch (e) {
     sse(res, { type: "error", message: String(e.message || e) });
   } finally {
