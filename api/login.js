@@ -1,5 +1,5 @@
-// POST /api/login -> setter auth-cookie. GET -> innloggingsside.
-import { readBody } from "../lib/http.js";
+// POST /api/login -> setter auth-cookie (med IP-lockout). GET -> innloggingsside.
+import { readBody, clientIp } from "../lib/http.js";
 import { handleLoginPost, LOGIN_HTML } from "../lib/auth.js";
 
 export default async function handler(req, res) {
@@ -9,5 +9,5 @@ export default async function handler(req, res) {
   }
   if (req.method !== "POST") { res.writeHead(405); return res.end(); }
   const body = await readBody(req).catch(() => ({}));
-  return handleLoginPost(req, res, body);
+  return handleLoginPost(req, res, body, clientIp(req));
 }

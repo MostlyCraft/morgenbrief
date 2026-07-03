@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 import { loadEnv } from "./lib/env.js";
 loadEnv();
 
-import { json, readBody, sseInit, sse } from "./lib/http.js";
+import { json, readBody, sseInit, sse, clientIp, logError, securityHeaders } from "./lib/http.js";
+import { allowRate } from "./lib/ratelimit.js";
+import { kvAvailable, kvGetJSON } from "./lib/kv.js";
 import { isAuthed, handleLoginPost, LOGIN_HTML } from "./lib/auth.js";
 import {
   metaInfo, generateBrief, chatReply, getQuotesCached,
@@ -54,6 +56,7 @@ async function streamHandler(res, fn) {
     );
     sse(res, { type: "done", ...(done || {}) });
   } catch (e) {
+    logError("stream", e).catch(() => {});
     sse(res, { type: "error", message: String(e.message || e) });
   } finally {
     res.end();
@@ -64,11 +67,21 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   const p = url.pathname;
   const m = req.method;
+  const ip = clientIp(req);
+  securityHeaders(res, req.headers["x-forwarded-proto"] === "https");
 
   try {
+    if (m === "GET" && p === "/api/health") {
+      let kv = null;
+      if (kvAvailable()) kv = await kvGetJSON("mb:errlog").then(() => true).catch(() => false);
+      return json(res, 200, {
+        ok: true, storage: storageMode(), kvReachable: kv,
+        anthropicKey: hasKey(), model: modelName(), time: nowCET().time + " CET",
+      });
+    }
     if (m === "POST" && p === "/api/login") {
       const body = await readBody(req).catch(() => ({}));
-      return handleLoginPost(req, res, body);
+      return handleLoginPost(req, res, body, ip);
     }
     if (!isAuthed(req)) {
       if (p.startsWith("/api/")) return json(res, 401, { error: "Ikke innlogget" });
@@ -98,6 +111,11 @@ const server = http.createServer(async (req, res) => {
       return b ? json(res, 200, { exists: true, ...b }) : json(res, 200, { exists: false });
     }
     if (m === "POST" && p === "/api/briefing/generate") {
+      if (!(await allowRate("gen", ip, 10, 3600))) {
+        sseInit(res);
+        sse(res, { type: "error", message: "For mange genereringsforsøk fra denne IP-en - prøv igjen om en time." });
+        return res.end();
+      }
       const body = await readBody(req).catch(() => ({}));
       return streamHandler(res, (onStatus, onText) =>
         generateBrief({ focus: body.focus, force: Boolean(body.force), onStatus, onText }));
@@ -105,6 +123,11 @@ const server = http.createServer(async (req, res) => {
     if (m === "GET" && p === "/api/chat/today") return json(res, 200, { messages: await getChatHistory() });
     if (m === "DELETE" && p === "/api/chat/today") { await saveChatHistory([]); return json(res, 200, { ok: true }); }
     if (m === "POST" && p === "/api/chat") {
+      if (!(await allowRate("chat", ip, 30, 3600))) {
+        sseInit(res);
+        sse(res, { type: "error", message: "For mange chat-meldinger fra denne IP-en - prøv igjen om en time." });
+        return res.end();
+      }
       const body = await readBody(req).catch(() => ({}));
       const msg = String(body?.message || "").trim();
       if (!msg) { sseInit(res); sse(res, { type: "error", message: "Tom melding." }); return res.end(); }

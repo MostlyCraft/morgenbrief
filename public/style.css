@@ -230,6 +230,19 @@ header {
 .srcRow a { color: var(--text); text-decoration: none; }
 .srcRow a:hover { color: var(--amber); }
 .srcReasons { font-size: 10px; margin-top: 2px; }
+
+/* ---- TL;DR + juridisk footer (fase 0) ---- */
+.tldr {
+  margin: 2px 0 8px; padding: 5px 9px;
+  background: #10151d; border-left: 3px solid var(--amber);
+  color: var(--text); font-size: 12.5px;
+}
+.tldr::before { content: "TL;DR "; color: var(--amber); font-size: 10px; letter-spacing: 1px; }
+.legal {
+  padding: 16px 12px 22px; text-align: center;
+  color: var(--dim); font-size: 10.5px; letter-spacing: .5px;
+  border-top: 1px solid var(--line); margin-top: 12px;
+}
 .cols2 { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 10px; }
 .focusGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; }
 .focusGrid .panel { margin-bottom: 0; }

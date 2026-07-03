@@ -122,6 +122,12 @@ function renderMd(text, { firstLineQuote = false, sources = [] } = {}) {
       first = false;
       continue;
     }
+    if (/^`?TL;DR:/i.test(line.trim())) {
+      closeList();
+      html += `<div class="tldr">${inlineMd(line.trim().replace(/^`?TL;DR:\s*/i, "").replace(/`$/, ""), sources)}</div>`;
+      first = false;
+      continue;
+    }
     const stripped = line.replace(/^[-*]\s+/, "");
     const isBullet = /^[-*]\s+/.test(line.trim());
     const isPoint = /^\*{0,2}`?(poenget|so what):?/i.test(stripped.trim());
@@ -564,6 +570,25 @@ $("chatForm").addEventListener("submit", async (e) => {
   } catch (err) {
     statusEl.remove();
     replyEl.innerHTML = `<span class="down">FEIL: ${escapeHtml(String(err.message || err))}</span>`;
+  }
+});
+
+$("btnShare").addEventListener("click", async () => {
+  try {
+    const b = await (await fetch("/api/briefing/today")).json();
+    if (!b.exists) return banner("Ingen brief å dele ennå - generer først.", true);
+    const w = (s) => (s >= 61 ? "BULLISH" : s <= 39 ? "BEARISH" : "NØYTRALT");
+    let txt = `MORGENBRIEF ${b.date}`;
+    if (b.overall) txt += ` — marked ${b.overall.score}/100 ${w(b.overall.score)}`;
+    for (const [name, s] of Object.entries(b.sections || {})) {
+      if (name.startsWith("FOKUS:")) txt += `\n${name.replace(/^FOKUS:\s*/, "")}: ${s.score}/100 ${w(s.score)}${s.lowConf ? " (lav konfidens)" : ""}`;
+    }
+    txt += `\n\nAI-generert med kildekritikk. Informasjon, ikke investeringsråd.\n${location.origin}`;
+    await navigator.clipboard.writeText(txt);
+    banner("Delbart sammendrag kopiert - lim inn hvor som helst.");
+    setTimeout(() => banner(""), 4000);
+  } catch {
+    banner("Kunne ikke kopiere sammendraget.", true);
   }
 });
 
